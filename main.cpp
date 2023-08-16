@@ -332,54 +332,58 @@ Mesh CreateMyBall(float radius, unsigned int rings, unsigned int sectors, glm::v
 Mesh CreateMyCloth(float width, float height, unsigned int complexity, glm::vec3 center) {
 	Mesh clothMesh;
 
-	// Vertex generation
-	for (unsigned int i = 0; i <= complexity; ++i) {
-		for (unsigned int j = 0; j <= complexity; ++j) {
+	// 1. Generate vertices
+	for (unsigned int i = 0; i <= complexity; i++) {
+		for (unsigned int j = 0; j <= complexity; j++) {
 			Vertex vertex;
+			vertex.index = i * (complexity + 1) + j;
 			vertex.Pos = glm::vec3(j * width / complexity - width / 2, 0, i * height / complexity - height / 2) + center;
 			vertex.Pre = vertex.Pos;
 			vertex.Normal = glm::vec3(0.0f, 1.0f, 0.0f);
-			vertex.TexCoords = glm::vec2((float)j / complexity, (float)i / complexity);
+			vertex.TexCoords = glm::vec2((float)i / complexity, (float)j / complexity);
 			clothMesh.vertices.push_back(vertex);
 		}
 	}
 
-	// Index generation
-	for (unsigned int i = 0; i < complexity; ++i) {
-		for (unsigned int j = 0; j < complexity; ++j) {
-			unsigned int first = i * (complexity + 1) + j;
-			unsigned int second = first + complexity + 1;
+	// 2. Anchor the top corners
+	clothMesh.vertices[0].isAnchored = true;
+	clothMesh.vertices[complexity].isAnchored = true;
 
-			clothMesh.indices.push_back(first);
-			clothMesh.indices.push_back(second);
-			clothMesh.indices.push_back(first + 1);
+	// 3. Generate indices
+	for (unsigned int i = 0; i < complexity; i++) {
+		for (unsigned int j = 0; j < complexity; j++) {
+			unsigned int topLeft = i * (complexity + 1) + j;
+			unsigned int topRight = topLeft + 1;
+			unsigned int bottomLeft = (i + 1) * (complexity + 1) + j;
+			unsigned int bottomRight = bottomLeft + 1;
 
-			clothMesh.indices.push_back(second);
-			clothMesh.indices.push_back(second + 1);
-			clothMesh.indices.push_back(first + 1);
+			clothMesh.indices.push_back(topLeft);
+			clothMesh.indices.push_back(bottomLeft);
+			clothMesh.indices.push_back(topRight);
+
+			clothMesh.indices.push_back(bottomLeft);
+			clothMesh.indices.push_back(bottomRight);
+			clothMesh.indices.push_back(topRight);
 		}
 	}
 
-	// Edge generation with deduplication
-	std::set<Edge> edgeSet;
+	// 4. Generate unique edges
+	std::set<Edge> uniqueEdges;
 	for (int i = 0; i < clothMesh.indices.size(); i += 3) {
 		std::array<int, 3> triangle = { clothMesh.indices[i], clothMesh.indices[i + 1], clothMesh.indices[i + 2] };
-		std::sort(triangle.begin(), triangle.end());
-
-		edgeSet.insert(Edge{ triangle[0], triangle[1] });
-		edgeSet.insert(Edge{ triangle[1], triangle[2] });
-		edgeSet.insert(Edge{ triangle[0], triangle[2] });
+		for (int j = 0; j < 3; j++) {
+			Edge e;
+			e.startVertex = triangle[j];
+			e.endVertex = triangle[(j + 1) % 3];
+			if (e.startVertex > e.endVertex) std::swap(e.startVertex, e.endVertex);
+			e.OriLength = glm::distance(clothMesh.vertices[e.startVertex].Pos, clothMesh.vertices[e.endVertex].Pos);
+			uniqueEdges.insert(e);
+		}
 	}
-
-	for (const Edge& e : edgeSet) {
-		Edge edge = e;
-		edge.OriLength = glm::distance(clothMesh.vertices[edge.startVertex].Pos, clothMesh.vertices[edge.endVertex].Pos);
-		clothMesh.edges.push_back(edge);
-	}
+	clothMesh.edges.assign(uniqueEdges.begin(), uniqueEdges.end());
 
 	return clothMesh;
 }
-
 void rotateMyBall(Mesh& ballMesh, float angle) {
 	glm::mat4 rotationMatrix = glm::rotate(glm::mat4(1.0f), angle, glm::vec3(0.0f, 1.0f, 0.0f));
 	for (Vertex& v : ballMesh.vertices) {
@@ -390,14 +394,17 @@ void rotateMyBall(Mesh& ballMesh, float angle) {
 
 const float MIN_Y_POS = 0.1f;
 
-void GiveaSpringforce(Mesh &mesh, float gravity)
-{
+void GiveaSpringforce(Mesh& mesh, float gravity) {
 	vector<Edge>& edges = mesh.edges;
 	vector<Vertex>& vertices = mesh.vertices;
 
 	for (Edge& e : edges) {
 		Vertex& startVertex = vertices[e.startVertex];
 		Vertex& endVertex = vertices[e.endVertex];
+
+		if (startVertex.isAnchored && endVertex.isAnchored) {
+			continue; // Skip this edge if both vertices are anchored
+		}
 
 		glm::vec3 dir = glm::normalize(startVertex.Pos - endVertex.Pos);
 		float currentLength = glm::distance(startVertex.Pos, endVertex.Pos);
@@ -417,8 +424,12 @@ void GiveaSpringforce(Mesh &mesh, float gravity)
 			}
 		}
 
-		startVertex.force -= springforce;
-		endVertex.force += springforce;
+		if (!startVertex.isAnchored) {
+			startVertex.force -= springforce;
+		}
+		if (!endVertex.isAnchored) {
+			endVertex.force += springforce;
+		}
 	}
 }
 
