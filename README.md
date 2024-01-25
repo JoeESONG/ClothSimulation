@@ -1,1 +1,1 @@
-![image]([https://github.com/JoeESONG/FluidSim/blob/master/cloth.gif](https://github.com/JoeESONG/ClothSimulation/blob/master/cloth.gif)https://github.com/JoeESONG/ClothSimulation/blob/master/cloth.gif)
+![image](https://github.com/JoeESONG/ClothSimulation/blob/master/cloth.gif)
